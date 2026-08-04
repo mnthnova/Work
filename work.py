@@ -21,7 +21,6 @@ def ExecuteCommand(self, request, context):
         
         return commands_pb2.Command.Execute.Response(syncResponse=sync_resp)
 
-
 import serial
 import time
 import re
@@ -42,70 +41,91 @@ class UART:
         self.timeout = 2
 
     def run_serial_minicom(self, uart_device):
-        # 1. Capture Port Open Errors
-        try:
-            serial_console = serial.Serial(port=uart_device, baudrate=self.baudrate)
-        except Exception as e:
-            return f"[PORT ERROR: Could not open {uart_device} - {str(e)}]"
+        serial_console = serial.Serial(port=uart_device, baudrate=self.baudrate)
 
-        # Sending ESC character to UART (Using your proven 2-second delays)
+        # Sending ESC character to UART
         for _ in range(0, 2):
-            serial_console.write(b"\x1b")
+            serial_console.write("\x1b".encode())
             time.sleep(2)
         time.sleep(2)
 
-        serial_command = self.serial_command.strip() + "\r"
+        serial_command = self.serial_command + "\r"
         serial_output = ""
-        
+
         serial_console.write(serial_command.encode())
-        time.sleep(2) # Give drive time to fetch memory
+        time.sleep(2)
         rx_buf_bytes = serial_console.in_waiting
 
-        loops = 0
-        max_loops = 10 # 10 loops max to prevent infinite hanging
-
-        while rx_buf_bytes != 0 and loops < max_loops:
+        while rx_buf_bytes != 0:
             time.sleep(self.timeout)
             rx_buf_bytes = serial_console.in_waiting
-            
-            if rx_buf_bytes > 0:
-                new_data = serial_console.read(rx_buf_bytes).decode('utf-8', errors='ignore')
-                serial_output += new_data
-                
-                # Exit early if bricked drive spam is detected
-                if "[SFROM] BOOT HEADER ERR" in new_data:
-                    break
-            loops += 1
+            # Added errors='ignore' so weird bricked characters don't crash Python and drop the IP
+            serial_output += serial_console.read(rx_buf_bytes).decode('utf-8', errors='ignore')
 
         serial_console.close()
-        
-        # 2. Capture if port opened but drive sent nothing
-        if not serial_output.strip():
-            return "[NO DATA RECEIVED: Port opened, but drive stayed silent]"
-            
         return serial_output
 
 def run_serial_cmd(serial_command):
     uart_device = "/dev/ttyUSB0"
     serial_obj = UART(serial_command)
-    
+
+    # Check if minicom UART is configured
     if stat.S_ISCHR(os.stat(uart_device).st_mode):
-        return serial_obj.run_serial_minicom(uart_device)
-    return f"[DEVICE ERROR: {uart_device} does not exist or is not configured]"
+        try:
+            return serial_obj.run_serial_minicom(uart_device)
+        except Exception as e:
+            return f"ERROR: {str(e)}"
+    
+    # Returning string instead of sys.exit(1) so Ansible doesn't crash on this host
+    return "ERROR: DEVICE NOT CONFIGURED"
 
-def extract_info(raw_output, address_pattern):
-    # If the output is one of our custom error messages, skip parsing
-    if not raw_output or raw_output.startswith("["): 
-        return "", ""
-        
-    clean_output = raw_output.replace("\0", "")
+
+# ==========================================
+# YOUR EXACT PARSING LOGIC - PRIMARY
+# ==========================================
+cmd_output_primary = run_serial_cmd(COMMAND_PRIMARY)
+
+clean_output = cmd_output_primary.replace("\0", "")
+uart_ascii_lines = []
+
+for line in clean_output.splitlines():
+    if re.match(r'^208a[0-9a-fA-F]{4}:', line, re.IGNORECASE):
+        parts = re.split(r'\s{2,}', line)
+        if len(parts) > 1:
+            ascii_part = parts[-1].strip()
+            ascii_part = ascii_part.replace(".", "")
+            if ascii_part:
+                uart_ascii_lines.append(ascii_part)
+            else:
+                uart_ascii_lines.append("")
+
+while len(uart_ascii_lines) < 4:
+    uart_ascii_lines.append("")
+
+line1 = uart_ascii_lines[0]
+line2 = uart_ascii_lines[1]
+line3 = uart_ascii_lines[2]
+line4 = uart_ascii_lines[3]
+
+model_number = line1 + line2
+serial_number = line3 + line4
+
+# ==========================================
+# YOUR EXACT PARSING LOGIC - FALLBACK
+# ==========================================
+cmd_output_fallback = ""
+if not model_number.strip() and not serial_number.strip():
+    cmd_output_fallback = run_serial_cmd(COMMAND_FALLBACK)
+    
+    clean_output = cmd_output_fallback.replace("\0", "")
     uart_ascii_lines = []
-
+    
     for line in clean_output.splitlines():
-        if re.match(address_pattern, line, re.IGNORECASE):
+        if re.match(r'^208f[0-9a-fA-F]{4}:', line, re.IGNORECASE):
             parts = re.split(r'\s{2,}', line)
             if len(parts) > 1:
-                ascii_part = parts[-1].strip().replace(".", "")
+                ascii_part = parts[-1].strip()
+                ascii_part = ascii_part.replace(".", "")
                 if ascii_part:
                     uart_ascii_lines.append(ascii_part)
                 else:
@@ -114,44 +134,35 @@ def extract_info(raw_output, address_pattern):
     while len(uart_ascii_lines) < 4:
         uart_ascii_lines.append("")
 
-    model = (uart_ascii_lines[0] + uart_ascii_lines[1]).strip()
-    serial = (uart_ascii_lines[2] + uart_ascii_lines[3]).strip()
-    return model, serial
+    line1 = uart_ascii_lines[0]
+    line2 = uart_ascii_lines[1]
+    line3 = uart_ascii_lines[2]
+    line4 = uart_ascii_lines[3]
+
+    model_number = line1 + line2
+    serial_number = line3 + line4
 
 # ==========================================
-# 1st ATTEMPT: PRIMARY COMMAND
-# ==========================================
-primary_raw = run_serial_cmd(COMMAND_PRIMARY)
-model, serial = extract_info(primary_raw, r'^208a[0-9a-fA-F]{4}:')
-
-# ==========================================
-# 2nd ATTEMPT: FALLBACK COMMAND
-# ==========================================
-fallback_raw = ""
-if not model and not serial:
-    fallback_raw = run_serial_cmd(COMMAND_FALLBACK)
-    model, serial = extract_info(fallback_raw, r'^208f[0-9a-fA-F]{4}:')
-
-# ==========================================
-# DEBUGGER: Build the "Cat File" Output
+# NEW: ADD DEBUG LOGIC IF SERIAL IS EMPTY
 # ==========================================
 debug_log = ""
-if not model and not serial:
-    debug_log = (
-        f"\n--- UART DEBUG INFO ---\n"
-        f"PRIMARY CMD RUN:\n{primary_raw}\n"
-        f"-----------------------\n"
-        f"FALLBACK CMD RUN:\n{fallback_raw if fallback_raw else 'NOT RUN'}\n"
-        f"-----------------------\n"
-    )
+if not serial_number.strip():
+    debug_log = "--- PRIMARY COMMAND RAW OUTPUT ---\n"
+    debug_log += cmd_output_primary
+    debug_log += "\n--- FALLBACK COMMAND RAW OUTPUT ---\n"
+    if cmd_output_fallback:
+        debug_log += cmd_output_fallback
+    else:
+        debug_log += "NOT RUN"
 
 # ==========================================
-# FINAL JSON OUTPUT
+# FINAL JSON 
 # ==========================================
 result = {
-    "model_number": model,
-    "serial_number": serial,
+    "model_number": model_number,
+    "serial_number": serial_number,
     "debug_info": debug_log
 }
 
 print(json.dumps(result))
+
