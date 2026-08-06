@@ -166,3 +166,146 @@ result = {
 
 print(json.dumps(result))
 
+
+
+import json
+import smtplib
+from email.message import EmailMessage
+
+# ==========================================
+# CONFIGURATION
+# ==========================================
+JSON_FILE = "output.json"
+REPORT_FILE = "failed_drives_report.txt"
+
+# Email Settings
+SENDER_EMAIL = "your_sender_email@gmail.com"
+SENDER_PASSWORD = "your_app_password_here" 
+RECEIVER_EMAIL = "your_receiver_email@company.com"
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 465
+
+def generate_and_send_report():
+    # 1. Read JSON
+    try:
+        with open(JSON_FILE, 'r') as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        print(f"Error: {JSON_FILE} not found.")
+        return
+
+    # 2. Filter for problem machines
+    problem_machines = []
+    
+    for host in data:
+        ip = host.get("ip_address", "Unknown")
+        status = host.get("status", "")
+        drive_status = host.get("drive_status", "")
+        serial = host.get("serial_number", "").strip()
+        
+        issues = []
+        if status == "unreachable":
+            issues.append("Host Unreachable")
+        else:
+            if drive_status != "attached":
+                issues.append("Drive Not Attached")
+            if not serial:
+                issues.append("Missing Serial Number")
+                
+        if issues:
+            problem_machines.append({
+                "IP Address": ip,
+                "Host Status": status,
+                "Drive Status": drive_status if drive_status else "N/A",
+                "Serial Number": serial if serial else "EMPTY",
+                "Main Issue": " | ".join(issues)
+            })
+
+    if not problem_machines:
+        print("All machines are healthy! No report needed.")
+        return
+
+    # 3. Generate plain text table (to save in the file)
+    headers = ["IP Address", "Host Status", "Drive Status", "Serial Number", "Main Issue"]
+    col_widths = {h: len(h) for h in headers}
+    for row in problem_machines:
+        for h in headers:
+            col_widths[h] = max(col_widths[h], len(str(row[h])))
+            
+    separator = "-" * (sum(col_widths.values()) + (len(headers) * 3) + 1)
+    text_table = "DAILY DRIVE HEALTH REPORT\n" + separator + "\n"
+    text_table += "| " + " | ".join(h.ljust(col_widths[h]) for h in headers) + " |\n"
+    text_table += separator + "\n"
+    for row in problem_machines:
+        text_table += "| " + " | ".join(str(row[h]).ljust(col_widths[h]) for h in headers) + " |\n"
+    text_table += separator + "\n"
+
+    with open(REPORT_FILE, 'w') as out_file:
+        out_file.write(text_table)
+    print(f"Saved text report to {REPORT_FILE}")
+
+    # 4. Generate HTML table (for the email body)
+    html_table = """
+    <html>
+      <head>
+        <style>
+          table { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
+          th { background-color: #f2f2f2; color: #333; font-weight: bold; padding: 10px; border: 1px solid #ddd; text-align: left; }
+          td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+          tr:nth-child(even) { background-color: #f9f9f9; }
+          h2 { font-family: Arial, sans-serif; color: #d9534f; }
+        </style>
+      </head>
+      <body>
+        <h2>Daily Drive Health Report</h2>
+        <p>The following machines require attention:</p>
+        <table>
+          <tr>
+            <th>IP Address</th>
+            <th>Host Status</th>
+            <th>Drive Status</th>
+            <th>Serial Number</th>
+            <th>Main Issue</th>
+          </tr>
+    """
+    
+    for row in problem_machines:
+        html_table += f"""
+          <tr>
+            <td>{row['IP Address']}</td>
+            <td>{row['Host Status']}</td>
+            <td>{row['Drive Status']}</td>
+            <td>{row['Serial Number']}</td>
+            <td>{row['Main Issue']}</td>
+          </tr>
+        """
+        
+    html_table += """
+        </table>
+      </body>
+    </html>
+    """
+
+    # 5. Send Email with HTML Body
+    try:
+        msg = EmailMessage()
+        msg['Subject'] = f"ALERT: Drive Health Report ({len(problem_machines)} issues found)"
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECEIVER_EMAIL
+        
+        # Set a plain text fallback, then add the HTML body
+        msg.set_content("Please enable HTML to view this email.")
+        msg.add_alternative(html_table, subtype='html')
+
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+            
+        print("HTML Email successfully sent!")
+        
+    except Exception as e:
+        print(f"Failed to send email. Error: {str(e)}")
+
+if __name__ == "__main__":
+    generate_and_send_report()
+
