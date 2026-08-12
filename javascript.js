@@ -214,3 +214,18 @@ document.addEventListener("DOMContentLoaded", function() {
 
     document.body.appendChild(btn);
 });
+
+
+
+document.addEventListener("DOMContentLoaded", function() {
+    var btn = document.createElement('a');
+    
+    // Dynamically check if we are on the Japanese page or English page
+    var isJapanese = window.location.pathname.includes('/ja/');
+    
+    // Route to the correct generated PDF path
+    btn.href = isJapanese ? "../../pdf/pdf_ja.pdf" : "../../pdf/pdf.pdf"; 
+    btn.target = "_blank";
+    
+    // ... [keep all your styling CSS below this] ...
+
