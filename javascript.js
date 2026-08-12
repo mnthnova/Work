@@ -160,27 +160,37 @@ document.addEventListener("DOMContentLoaded", function() {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 document.addEventListener("DOMContentLoaded", function() {
     var btn = document.createElement('a');
-    btn.href = "../pdf/pdf.pdf";
-    btn.target = "_blank";
+    var path = window.location.pathname;
     
-    // MATCHING MODERN CSS
+    // 1. Extract the project base URL dynamically (e.g., /kic-demo-48f8e7/setup_time/ or /kic-demo-48f8e7/main/)
+    // This works for ANY branch name automatically without hardcoding!
+    var match = path.match(/(\/[^\/]+\/[^\/]+\/)/);
+    
+    if (match) {
+        var baseContext = match[1]; // e.g., "/kic-demo-48f8e7/setup_time/"
+        
+        // 2. Check if we are on a Japanese page or English page
+        if (path.includes('/ja/')) {
+            // Japanese PDF path from your build output
+            btn.href = baseContext + "current/pdf/pdf.pdf";
+        } else {
+            // English PDF path from your build output
+            btn.href = baseContext + "pdf/pdf.pdf";
+        }
+    } else {
+        // Fallback safe relative path if match fails
+        btn.href = path.includes('/ja/') ? "../../current/pdf/pdf.pdf" : "../pdf/pdf.pdf";
+    }
+    
+    btn.target = "_blank";
+    btn.innerHTML = "📥 Download PDF";
+
+    // Matching your modern CSS styling
     btn.style.cssText = `
         position: fixed;
-        bottom: 130px; /* Sits right above the Language button */
+        bottom: 125px;
         left: 20px;
         background: #ffffff;
         padding: 8px 14px;
@@ -190,7 +200,7 @@ document.addEventListener("DOMContentLoaded", function() {
         color: #24292e;
         text-decoration: none;
         cursor: pointer;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 13px;
         font-weight: 600;
         z-index: 9999;
@@ -200,9 +210,6 @@ document.addEventListener("DOMContentLoaded", function() {
         gap: 6px;
     `;
 
-    btn.innerHTML = '<i class="fa fa-file-pdf-o" style="color: #d73a49;"></i> Download PDF';
-
-    // Add sleek hover effect
     btn.addEventListener('mouseenter', () => {
         btn.style.borderColor = '#0366d6';
         btn.style.color = '#0366d6';
@@ -217,18 +224,13 @@ document.addEventListener("DOMContentLoaded", function() {
 
 
 
-document.addEventListener("DOMContentLoaded", function() {
-    var btn = document.createElement('a');
-    
-    // Dynamically adjust the PDF path based on whether we are viewing Japanese or English HTML
-    var currentPath = window.location.pathname;
-    if (currentPath.includes('/ja/')) {
-        // Japanese pages are nested deeper inside /ja/, so they need to step back an extra level to reach /current/pdf/pdf.pdf
-        btn.href = "../../current/pdf/pdf.pdf";
-    } else {
-        // English pages use the standard path to reach /pdf/pdf.pdf
-        btn.href = "../pdf/pdf.pdf";
-    }
-    
-    btn.target = "_blank";
-    btn.innerHTML = "📥 Download PDF";
+
+
+
+
+
+
+
+
+
+
