@@ -1,0 +1,58 @@
+<h4>Versions</h4>
+<select id="version-select" style="width: 100%; padding: 6px; margin-top: 5px; border-radius: 4px; background-color: #f8f9fa; border: 1px solid #ccc;"></select>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        console.log("Sidebar Versioning DOM READY!!");
+
+        // Safely construct the path to versions.json
+        let basePath = window.location.origin + "/" + window.location.pathname.split("/")[1];
+        let jsonUrl = basePath + "/versions.json";
+
+        fetch(jsonUrl)
+            .then(res => res.json())
+            .then(data => {
+                const select = document.getElementById("version-select");
+
+                // Create HTML Groups for Branches and Tags
+                let branchGroup = document.createElement("optgroup");
+                branchGroup.label = "── Branches ──";
+
+                let tagGroup = document.createElement("optgroup");
+                tagGroup.label = "── Tags (Releases) ──";
+
+                data.forEach(v => {
+                    const option = document.createElement("option");
+                    option.value = v.url;
+                    option.text = v.name;
+
+                    // Sort into the correct header based on the CI/CD type
+                    if (v.type === 'tag') {
+                        tagGroup.appendChild(option);
+                    } else {
+                        branchGroup.appendChild(option);
+                    }
+                });
+
+                // Add groups to the dropdown
+                select.appendChild(branchGroup);
+                select.appendChild(tagGroup);
+
+                // Auto-select the currently active version based on the URL
+                const currentVersion = window.location.pathname.split("/")[2];
+                [...select.options].forEach(opt => {
+                    const optVersion = opt.value.split("/")[2];
+                    if (optVersion === currentVersion) {
+                        opt.selected = true;
+                    }
+                });
+
+                // Redirect the user when they click a new version
+                select.onchange = function () {
+                    let selected = this.value;
+                    window.location.href = selected.endsWith("/") ? selected : selected + "/";
+                };
+            })
+            .catch(err => console.error("Error loading versions:", err));
+    });
+</script>
