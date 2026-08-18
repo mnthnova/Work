@@ -1,236 +1,130 @@
-async function injectDiffControls() {
+// Ensure these variables are at the top
+    let currentBranch = window.location.pathname.match(/\/([^\/]+)\/current\//) ? window.location.pathname.match(/\/([^\/]+)\/current\//)[1] : "";
+    let targetBranch = ""; // Will be dynamically set
+
+    async function injectDiffControls() {
         if (document.getElementById('diff-settings-panel')) return;
 
         let panel = document.createElement('div');
         panel.id = 'diff-settings-panel';
-        
-        // MODERN PANEL CSS
         panel.style.cssText = `
             position: fixed; 
             bottom: 20px; 
             left: 20px; 
             background: #ffffff; 
-            padding: 12px 16px; 
+            padding: 10px 12px; 
             border: 1px solid #e1e4e8; 
-            border-radius: 8px; 
+            border-radius: 12px; 
             box-shadow: 0 4px 12px rgba(27,31,35,0.15); 
             z-index: 999999; 
             display: flex; 
-            gap: 12px; 
-            align-items: center;
+            flex-direction: column; 
+            gap: 6px; 
+            width: 180px; 
+            box-sizing: border-box;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
         `;
 
-        // REUSABLE MODERN SELECT CSS
+        // A sleek label to explain what the dropdown does
+        let label = document.createElement('div');
+        label.textContent = "Compare against:";
+        label.style.cssText = "font-size: 11px; font-weight: 600; color: #586069; margin-left: 2px;";
+        panel.appendChild(label);
+
         const selectStyle = `
-            appearance: none;
-            -webkit-appearance: none;
             background-color: #f6f8fa;
             border: 1px solid #e1e4e8;
             border-radius: 6px;
-            padding: 6px 28px 6px 12px;
+            padding: 6px 8px; 
             font-size: 13px;
             font-weight: 500;
             color: #24292e;
             cursor: pointer;
             outline: none;
+            width: 100%; 
+            box-sizing: border-box;
             transition: all 0.2s ease;
-            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2324292e%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
-            background-repeat: no-repeat;
-            background-position: right 10px top 50%;
-            background-size: 10px auto;
         `;
 
-        // 1. BRANCH DROPDOWN
+        // 1. THE SINGLE TARGET DROPDOWN
         let branchSelect = document.createElement('select');
         branchSelect.style.cssText = selectStyle;
-        
-        // Hover effect listener
-        branchSelect.addEventListener('mouseenter', () => branchSelect.style.backgroundColor = '#e1e4e8');
-        branchSelect.addEventListener('mouseleave', () => branchSelect.style.backgroundColor = '#f6f8fa');
 
+        // Fetch and Sort the JSON
         try {
             let basePath = window.location.pathname.split(`/${currentBranch}/current/`)[0];
             let response = await fetch(`${basePath}/versions.json`);
             if (response.ok) {
                 let versions = await response.json();
+                
+                let branchGroup = document.createElement('optgroup');
+                branchGroup.label = "── Branches ──";
+                
+                let tagGroup = document.createElement('optgroup');
+                tagGroup.label = "── Tags (Releases) ──";
+
                 versions.forEach(v => {
                     let opt = document.createElement('option');
                     opt.value = v.name;
-                    opt.textContent = "Branch: " + v.name;
-                    if (v.name === currentBranch) opt.selected = true;
-                    branchSelect.appendChild(opt);
+                    opt.textContent = v.name;
+                    opt.setAttribute('data-type', v.type);
+
+                    if (v.type === 'tag') {
+                        tagGroup.appendChild(opt);
+                    } else {
+                        branchGroup.appendChild(opt);
+                    }
                 });
+
+                branchSelect.appendChild(branchGroup);
+                branchSelect.appendChild(tagGroup);
+
+                // SMART DEFAULT SELECTION:
+                // Try to default the compare target to 'main' (if we aren't already on main)
+                // Otherwise, pick the first available option that isn't the current branch.
+                let selectedIndex = 0;
+                for (let i = 0; i < branchSelect.options.length; i++) {
+                    if (branchSelect.options[i].value === 'main' && currentBranch !== 'main') {
+                        selectedIndex = i;
+                        break;
+                    } else if (branchSelect.options[i].value !== currentBranch && selectedIndex === 0) {
+                        selectedIndex = i;
+                    }
+                }
+                branchSelect.selectedIndex = selectedIndex;
+                targetBranch = branchSelect.value;
             }
         } catch (e) {
-            branchSelect.innerHTML = `<option value="${currentBranch}">Branch: ${currentBranch}</option>`;
+            branchSelect.innerHTML = `<option value="main">main</option>`;
+            targetBranch = "main";
         }
 
-        // 2. COMMIT DROPDOWN
-        let commitSelect = document.createElement('select');
-        commitSelect.style.cssText = selectStyle;
-        
-        // Hover effect listener
-        commitSelect.addEventListener('mouseenter', () => commitSelect.style.backgroundColor = '#e1e4e8');
-        commitSelect.addEventListener('mouseleave', () => commitSelect.style.backgroundColor = '#f6f8fa');
-
-        commitSelect.innerHTML = `
-            <option value="current">Current Version</option>
-            <option value="previous" selected>Previous Commit (-1)</option>
-            <option value="prev-2">Older Commit (-2)</option>
-        `;
-
-        // LOGIC PRESERVED
+        // --- THE EVENT LISTENER ---
         branchSelect.addEventListener('change', function(e) {
             targetBranch = e.target.value;
-            previousHTML = null; 
-            if (diffActive) toggleDiff(); 
-        });
-
-        commitSelect.addEventListener('change', function(e) {
-            targetDeffPath = e.target.value;
-            previousHTML = null; 
+            previousHTML = null; // Instantly clear cache so it fetches the newly selected branch
             if (diffActive) toggleDiff(); 
         });
 
         panel.appendChild(branchSelect);
-        panel.appendChild(commitSelect);
         document.body.appendChild(panel);
     }
 
-
-
-
-document.addEventListener("DOMContentLoaded", function() {
-    var btn = document.createElement('div');
-    
-    // MODERN FLOATING BUTTON CSS
-    btn.style.cssText = `
-        position: fixed;
-        bottom: 85px; /* Sits right above the diff panel */
-        left: 20px;
-        background: #ffffff;
-        padding: 8px 14px;
-        border: 1px solid #e1e4e8;
-        border-radius: 20px; /* Pill shape */
-        box-shadow: 0 4px 12px rgba(27,31,35,0.15);
-        color: #24292e;
-        cursor: pointer;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-        z-index: 9999;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    `;
-
-    // Add sleek hover effect
-    btn.addEventListener('mouseenter', () => {
-        btn.style.borderColor = '#0366d6';
-        btn.style.color = '#0366d6';
-    });
-    btn.addEventListener('mouseleave', () => {
-        btn.style.borderColor = '#e1e4e8';
-        btn.style.color = '#24292e';
-    });
-
-    var currentPath = window.location.pathname;
-
-    if (currentPath.includes('/ja/')) {
-        btn.innerHTML = "🌐 Switch To English";
-        btn.onclick = function() {
-            window.location.href = currentPath.replace('/ja/', '/');
-        };
+    // Call it safely
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        injectDiffControls();
     } else {
-        btn.innerHTML = "🌐 日本語 (Japanese)";
-        btn.onclick = function() {
-            var newPath = currentPath.replace(/(.*\/)(.*\.html)$/, '$1ja/$2');
-            window.location.href = newPath;
-        };
+        document.addEventListener('DOMContentLoaded', injectDiffControls);
     }
-    
-    document.body.appendChild(btn);
-});
 
-
-
-
-
-
-
-document.addEventListener("DOMContentLoaded", function() {
-    var btn = document.createElement('a');
-    var path = window.location.pathname;
-    
-    // 1. Extract the project base URL dynamically (e.g., /kic-demo-48f8e7/setup_time/ or /kic-demo-48f8e7/main/)
-    // This works for ANY branch name automatically without hardcoding!
-    var match = path.match(/(\/[^\/]+\/[^\/]+\/)/);
-    
-    if (match) {
-        var baseContext = match[1]; // e.g., "/kic-demo-48f8e7/setup_time/"
+    // 2. THE SIMPLIFIED URL ROUTER
+    function getPreviousURL() {
+        let path = window.location.pathname;
         
-        // 2. Check if we are on a Japanese page or English page
-        if (path.includes('/ja/')) {
-            // Japanese PDF path from your build output
-            btn.href = baseContext + "current/pdf/pdf.pdf";
-        } else {
-            // English PDF path from your build output
-            btn.href = baseContext + "pdf/pdf.pdf";
-        }
-    } else {
-        // Fallback safe relative path if match fails
-        btn.href = path.includes('/ja/') ? "../../current/pdf/pdf.pdf" : "../pdf/pdf.pdf";
+        // All we do now is swap the currently viewed branch with the target branch!
+        // Both always look inside their respective /current/ folders.
+        let searchString = `/${currentBranch}/current/`;
+        let replaceString = `/${targetBranch}/current/`;
+        
+        return path.replace(searchString, replaceString);
     }
-    
-    btn.target = "_blank";
-    btn.innerHTML = "📥 Download PDF";
-
-    // Matching your modern CSS styling
-    btn.style.cssText = `
-        position: fixed;
-        bottom: 125px;
-        left: 20px;
-        background: #ffffff;
-        padding: 8px 14px;
-        border: 1px solid #e1e4e8;
-        border-radius: 20px;
-        box-shadow: 0 4px 12px rgba(27,31,35,0.15);
-        color: #24292e;
-        text-decoration: none;
-        cursor: pointer;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-        z-index: 9999;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    `;
-
-    btn.addEventListener('mouseenter', () => {
-        btn.style.borderColor = '#0366d6';
-        btn.style.color = '#0366d6';
-    });
-    btn.addEventListener('mouseleave', () => {
-        btn.style.borderColor = '#e1e4e8';
-        btn.style.color = '#24292e';
-    });
-
-    document.body.appendChild(btn);
-});
-
-
-
-
-
-
-
-
-
-
-
-
-
