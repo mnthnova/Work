@@ -128,3 +128,107 @@
         
         return path.replace(searchString, replaceString);
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 1. LOAD THE DOM-AWARE LIBRARY
+    function loadLocalDiffLib() {
+        if (window.HtmlDiff) {
+            console.log("diff lib already loaded");
+            return;
+        }
+        
+        const script = document.createElement('script');
+        // Loading the industry-standard htmldiff-js library
+        script.src = 'https://unpkg.com/htmldiff-js@1.0.5/dist/htmldiff.min.js';
+        
+        script.onload = () => {
+            console.log("DOM-Aware Diff Lib Loaded Successfully");
+        };
+        
+        document.head.appendChild(script);
+    }
+
+    // Initialize immediately
+    loadLocalDiffLib();
+
+    (function() {
+        'use strict';
+
+        let diffActive = false;
+        let previousHTML = null;
+
+        // [KEEP YOUR injectDiffControls AND getPreviousURL FUNCTIONS HERE EXACTLY AS THEY ARE]
+
+        function getContentArea(doc) {
+            return doc.querySelector('[itemprop="articleBody"]') || 
+                   doc.querySelector('.document') || 
+                   doc.querySelector('[role="main"]') || 
+                   doc.body;
+        }
+
+        function clearHighlights() {
+            let currentContent = getContentArea(document);
+            
+            if (currentContent && currentContent.hasAttribute('data-original-html')) {
+                currentContent.innerHTML = currentContent.getAttribute('data-original-html');
+                currentContent.removeAttribute('data-original-html');
+                currentContent.removeAttribute('data-diff');
+                currentContent.style.borderLeft = '';
+                currentContent.style.paddingLeft = '';
+            }
+        }
+
+        // 2. THE NEW, MASSIVELY SIMPLIFIED DIFF ENGINE
+        function applyDiff(baseHTML, currentDoc) {
+            clearHighlights();
+
+            let parser = new DOMParser();
+            let baseDoc = parser.parseFromString(baseHTML, 'text/html');
+
+            let baseContent = getContentArea(baseDoc);
+            let currentContent = getContentArea(currentDoc);
+
+            if (!baseContent || !currentContent) {
+                console.log('Could Not Find Content Area');
+                return;
+            }
+
+            // Save the original, clean DOM so we can toggle the diff off later
+            currentContent.setAttribute('data-original-html', currentContent.innerHTML);
+
+            // Execute the magic: This safely compares the elements and returns valid HTML
+            // It automatically protects tables, lists, and nested divs from breaking!
+            let diffResult = HtmlDiff.execute(baseContent.innerHTML, currentContent.innerHTML);
+
+            // Inject the perfectly merged result back into the screen
+            currentContent.innerHTML = diffResult;
+
+            // Add the styling indicator to the side of the page
+            currentContent.setAttribute('data-diff', 'changed');
+            currentContent.style.borderLeft = '3px solid #ffc107';
+            currentContent.style.paddingLeft = '8px';
+            currentContent.style.marginBottom = '4px';
+        }
+
+        // [KEEP YOUR fetchPreviousPage AND toggleDiff FUNCTIONS HERE EXACTLY AS THEY ARE]
+
+    })();
+
